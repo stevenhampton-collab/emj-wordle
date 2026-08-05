@@ -50,6 +50,88 @@ async function rawSet(key: string, value: string): Promise<void> {
   if (!res.ok) throw new Error(`KV set failed (${res.status})`);
 }
 
+// Diagnostics: confirm the KV connection works end-to-end, without ever
+// exposing the secret URL or token. Reports whether the env vars are present
+// and whether a real write/read round trip against KV succeeds. A stray space
+// or typo in a value shows up here as a failed round trip rather than silently
+// falling back to in-memory.
+export async function kvSelfTest(): Promise<{
+  configured: boolean;
+  urlPresent: boolean;
+  tokenPresent: boolean;
+  kvOk: boolean;
+  detail: string;
+}> {
+  const urlPresent = Boolean(process.env.KV_REST_API_URL);
+  const tokenPresent = Boolean(process.env.KV_REST_API_TOKEN);
+  const configured = isKvConfigured();
+  if (!configured) {
+    return {
+      configured,
+      urlPresent,
+      tokenPresent,
+      kvOk: false,
+      detail:
+        "KV env vars not detected in this deployment; the app is using the in-memory fallback (data will not persist).",
+    };
+  }
+
+  const key = "healthcheck";
+  const value = "ok";
+  try {
+    const setUrl = `${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`;
+    const setRes = await fetch(setUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
+      body: value,
+    });
+    if (!setRes.ok) {
+      return {
+        configured,
+        urlPresent,
+        tokenPresent,
+        kvOk: false,
+        detail: `KV write rejected (HTTP ${setRes.status}) — the URL or token value is likely wrong.`,
+      };
+    }
+
+    const getUrl = `${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`;
+    const getRes = await fetch(getUrl, {
+      headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
+      cache: "no-store",
+    });
+    if (!getRes.ok) {
+      return {
+        configured,
+        urlPresent,
+        tokenPresent,
+        kvOk: false,
+        detail: `KV read rejected (HTTP ${getRes.status}) — the URL or token value is likely wrong.`,
+      };
+    }
+
+    const data = (await getRes.json()) as { result: string | null };
+    const kvOk = data.result === value;
+    return {
+      configured,
+      urlPresent,
+      tokenPresent,
+      kvOk,
+      detail: kvOk
+        ? "KV read/write round trip succeeded — durable storage is live."
+        : "KV responded but the value did not read back correctly.",
+    };
+  } catch (err) {
+    return {
+      configured,
+      urlPresent,
+      tokenPresent,
+      kvOk: false,
+      detail: `KV request failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 function playerKey(email: string): string {
   return `player:${email.trim().toLowerCase()}`;
 }
