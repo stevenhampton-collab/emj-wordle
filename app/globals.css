@@ -50,8 +50,8 @@
   --font-serif: Georgia, "Times New Roman", serif;
 
   /* Wordle tile states */
-  --wl-correct: #253746; /* EMJ Navy */
-  --wl-present: #ffc56e; /* Pacific Surf gold */
+  --wl-correct: #4f9d5b; /* correct spot green */
+  --wl-present: #e8b878; /* misplaced, softer amber (less yellow) */
   --wl-absent: #9e9e9e; /* muted gray */
 }
 
