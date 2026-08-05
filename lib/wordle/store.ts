@@ -197,3 +197,20 @@ export async function upsertLeaderboardEntry(
   else board.push(entry);
   await rawSet(LEADERBOARD_KEY, JSON.stringify(board));
 }
+
+// Wipe all game data: every player record and the leaderboard. Clears the
+// in-memory fallback and, when KV is configured, flushes the store's dedicated
+// Redis database. This database is single-purpose (only this app writes to it),
+// so a full flush is the reliable way to clear everything without having to
+// scan for keys. Guarded by the admin secret at the API layer.
+export async function resetAll(): Promise<void> {
+  memory.clear();
+  if (!isKvConfigured()) return;
+  const url = `${kvUrl()}/flushdb`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${kvToken()}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`KV flush failed (${res.status})`);
+}
