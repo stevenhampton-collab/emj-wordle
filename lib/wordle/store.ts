@@ -14,10 +14,33 @@ import type { LeaderboardEntry, PlayerRecord } from "./types";
 
 const LEADERBOARD_KEY = "leaderboard";
 
-export function isKvConfigured(): boolean {
-  return Boolean(
-    process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN,
+// Resolve the KV connection from the environment. We accept both the Vercel KV
+// names (KV_REST_API_*) and Upstash's own names (UPSTASH_REDIS_REST_*), since a
+// database created directly on Upstash exposes the latter. Values are trimmed
+// and stripped of any accidental surrounding quotes so a copy/paste slip does
+// not silently break the connection.
+function cleanEnv(v: string | undefined): string | undefined {
+  if (!v) return undefined;
+  const trimmed = v.trim().replace(/^["']|["']$/g, "").trim();
+  return trimmed || undefined;
+}
+
+function kvUrl(): string | undefined {
+  return (
+    cleanEnv(process.env.KV_REST_API_URL) ??
+    cleanEnv(process.env.UPSTASH_REDIS_REST_URL)
   );
+}
+
+function kvToken(): string | undefined {
+  return (
+    cleanEnv(process.env.KV_REST_API_TOKEN) ??
+    cleanEnv(process.env.UPSTASH_REDIS_REST_TOKEN)
+  );
+}
+
+export function isKvConfigured(): boolean {
+  return Boolean(kvUrl() && kvToken());
 }
 
 // ---- in-memory fallback (dev/preview only) ----
@@ -26,9 +49,9 @@ const memory = new Map<string, string>();
 async function rawGet(key: string): Promise<string | null> {
   if (!isKvConfigured()) return memory.get(key) ?? null;
 
-  const url = `${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`;
+  const url = `${kvUrl()}/get/${encodeURIComponent(key)}`;
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
+    headers: { Authorization: `Bearer ${kvToken()}` },
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`KV get failed (${res.status})`);
@@ -41,10 +64,10 @@ async function rawSet(key: string, value: string): Promise<void> {
     memory.set(key, value);
     return;
   }
-  const url = `${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`;
+  const url = `${kvUrl()}/set/${encodeURIComponent(key)}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
+    headers: { Authorization: `Bearer ${kvToken()}` },
     body: value,
   });
   if (!res.ok) throw new Error(`KV set failed (${res.status})`);
@@ -62,8 +85,8 @@ export async function kvSelfTest(): Promise<{
   kvOk: boolean;
   detail: string;
 }> {
-  const urlPresent = Boolean(process.env.KV_REST_API_URL);
-  const tokenPresent = Boolean(process.env.KV_REST_API_TOKEN);
+  const urlPresent = Boolean(kvUrl());
+  const tokenPresent = Boolean(kvToken());
   const configured = isKvConfigured();
   if (!configured) {
     return {
@@ -79,10 +102,10 @@ export async function kvSelfTest(): Promise<{
   const key = "healthcheck";
   const value = "ok";
   try {
-    const setUrl = `${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`;
+    const setUrl = `${kvUrl()}/set/${encodeURIComponent(key)}`;
     const setRes = await fetch(setUrl, {
       method: "POST",
-      headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
+      headers: { Authorization: `Bearer ${kvToken()}` },
       body: value,
     });
     if (!setRes.ok) {
@@ -95,9 +118,9 @@ export async function kvSelfTest(): Promise<{
       };
     }
 
-    const getUrl = `${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`;
+    const getUrl = `${kvUrl()}/get/${encodeURIComponent(key)}`;
     const getRes = await fetch(getUrl, {
-      headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` },
+      headers: { Authorization: `Bearer ${kvToken()}` },
       cache: "no-store",
     });
     if (!getRes.ok) {
