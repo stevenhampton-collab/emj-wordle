@@ -73,6 +73,20 @@ async function rawSet(key: string, value: string): Promise<void> {
   if (!res.ok) throw new Error(`KV set failed (${res.status})`);
 }
 
+async function rawDel(key: string): Promise<void> {
+  if (!isKvConfigured()) {
+    memory.delete(key);
+    return;
+  }
+  const url = `${kvUrl()}/del/${encodeURIComponent(key)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${kvToken()}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`KV del failed (${res.status})`);
+}
+
 // Diagnostics: confirm the KV connection works end-to-end, without ever
 // exposing the secret URL or token. Reports whether the env vars are present
 // and whether a real write/read round trip against KV succeeds. A stray space
@@ -171,6 +185,21 @@ export async function getPlayer(email: string): Promise<PlayerRecord | null> {
 
 export async function savePlayer(player: PlayerRecord): Promise<void> {
   await rawSet(playerKey(player.email), JSON.stringify(player));
+}
+
+// Delete a single player: removes their record and drops them from the
+// leaderboard index. Safe to call for an email that isn't on the leaderboard
+// (e.g. someone mid-game who never finished a week).
+export async function deletePlayer(email: string): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  await rawDel(playerKey(normalized));
+  const board = await getLeaderboard();
+  const next = board.filter(
+    (e) => e.email.trim().toLowerCase() !== normalized,
+  );
+  if (next.length !== board.length) {
+    await rawSet(LEADERBOARD_KEY, JSON.stringify(next));
+  }
 }
 
 export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
