@@ -1,11 +1,13 @@
-// The weekly word — sourced from a Google Sheet the (non-technical) team manages.
+// The weekly word.
 //
-// The sheet has two columns: Week (ISO, e.g. "2026-W32") and Word (5-letter,
-// uppercase). We read it with a read-only API key over plain HTTPS — no SDK,
-// no OAuth. If the sheet isn't configured yet, we fall back to a built-in
-// starter bank so the game still works in preview/dev. If the sheet IS
-// configured but has no row for this week, we return null so the page can show
-// the friendly "No word this week" message.
+// Primary source is the team's built-in schedule (lib/wordle/schedule.ts),
+// keyed by ISO week — this is the curated word bank and is authoritative when
+// it has an entry for the week. For weeks not in the schedule we fall back to
+// an optional Google Sheet (two columns: Week ISO + 5-letter Word, read with a
+// read-only API key), and finally to a built-in starter bank so the game always
+// has something to show.
+
+import { WEEKLY_SCHEDULE } from "./schedule";
 
 // Ordered by priority: EMJ/product first, grooming next, then outdoor/nature.
 export const STARTER_BANK: string[] = [
@@ -68,11 +70,15 @@ async function fetchFromSheet(week: string): Promise<string | null> {
 }
 
 /**
- * The answer for a given ISO week, uppercase, or null when the sheet is live
- * but has no word for that week. Falls back to the starter bank when the sheet
- * isn't configured. Never throws — a sheet error falls back too.
+ * The answer for a given ISO week, uppercase. The curated schedule wins when it
+ * has an entry for the week; otherwise we try the Google Sheet (if configured)
+ * and finally the built-in starter bank. Never throws — a sheet error falls
+ * back too.
  */
 export async function getWordForWeek(week: string): Promise<string | null> {
+  const scheduled = WEEKLY_SCHEDULE[week.trim()];
+  if (scheduled) return scheduled;
+
   if (!isSheetsConfigured()) {
     return fallbackWord(week);
   }
